@@ -11,44 +11,20 @@ import (
 
 	_ "github.com/lib/pq"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"github.com/spf13/viper"
 )
 
-type Config struct {
-	Prometheus struct {
-		Port     int
-		Endpoint string
-	}
-	Communication struct {
-		Service2URL string
-		Protocol    string
-	}
-	MaxBacklog int
-	Logging    struct {
-		Level  string
-		Format string
-	}
-	Profiling struct {
-		Port int
-	}
-	MessageProduction struct {
-		Rate int
-	}
-	Database struct {
-		ConnectionURL string
-	}
-}
-
-var config Config
+const (
+	dbSource    = "postgres://postgres:baha123@localhost:5432/taskdb?sslmode=disable"
+	maxBacklog  = 100
+	produceRate = 2 // 2 tasks per second
+	httpAddress = "http://localhost:8081/consume"
+)
 
 func main() {
-	// Load configuration
-	err := loadConfig()
-	if err != nil {
-		log.Fatalf("Error loading config: %v", err)
-	}
+	// Seed the random generator
+	rand.Seed(time.Now().UnixNano())
 
-	db, err := sql.Open("postgres", config.Database.ConnectionURL)
+	db, err := sql.Open("postgres", dbSource)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -57,12 +33,12 @@ func main() {
 	// Initialize the database table
 	initDB(db)
 
-	http.Handle(config.Prometheus.Endpoint, promhttp.Handler())
+	http.Handle("/metrics", promhttp.Handler())
 
 	go generateTasks(db)
 
-	fmt.Printf("Producer service started on port %d...\n", config.Prometheus.Port)
-	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", config.Prometheus.Port), nil))
+	fmt.Println("Producer service started...")
+	log.Fatal(http.ListenAndServe(":8080", nil))
 }
 
 // initDB creates the tasks table if it does not exist
@@ -86,7 +62,7 @@ func initDB(db *sql.DB) {
 
 func generateTasks(db *sql.DB) {
 	for {
-		if backlogCount(db) < config.MaxBacklog {
+		if backlogCount(db) < maxBacklog {
 			taskType := rand.Intn(10)
 			taskValue := rand.Intn(100)
 			insertTask(db, taskType, taskValue)
@@ -94,13 +70,20 @@ func generateTasks(db *sql.DB) {
 			// Log the task generation
 			log.Printf("Generated task with Type: %d, Value: %d\n", taskType, taskValue)
 
+			// Ensure the task is inserted before the consumer tries to process it
+			time.Sleep(100 * time.Millisecond)
+
 			// Send to consumer
-			_, err := http.PostForm(config.Communication.Service2URL, url.Values{"type": {fmt.Sprint(taskType)}, "value": {fmt.Sprint(taskValue)}})
+			_, err := http.PostForm(httpAddress, url.Values{
+				"type":  {fmt.Sprint(taskType)},
+				"value": {fmt.Sprint(taskValue)},
+			})
 			if err != nil {
 				log.Println("Error sending task to consumer:", err)
 			}
 
-			time.Sleep(time.Second / time.Duration(config.MessageProduction.Rate))
+			// Control the rate of task generation
+			time.Sleep(time.Second / time.Duration(produceRate))
 		}
 	}
 }
@@ -117,23 +100,4 @@ func insertTask(db *sql.DB, taskType, value int) {
 	if err != nil {
 		log.Println("Error inserting task:", err)
 	}
-}
-
-// loadConfig loads the configuration from a YAML file
-func loadConfig() error {
-	viper.SetConfigName("config")
-	viper.SetConfigType("yaml")
-	viper.AddConfigPath("../producer/config")
-
-	err := viper.ReadInConfig()
-	if err != nil {
-		return err
-	}
-
-	err = viper.Unmarshal(&config)
-	if err != nil {
-		return err
-	}
-
-	return nil
 }

@@ -10,49 +10,31 @@ import (
 
 	_ "github.com/lib/pq"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"github.com/spf13/viper"
+	"golang.org/x/time/rate"
 )
 
-type Config struct {
-	Prometheus struct {
-		Port     int
-		Endpoint string
-	}
-	Communication struct {
-		Service1URL string
-		Protocol    string
-	}
-	Logging struct {
-		Level  string
-		Format string
-	}
-	Profiling struct {
-		Port int
-	}
-	MessageConsumption struct {
-		Rate int
-	}
-	Database struct {
-		ConnectionURL string
-	}
-}
-
-var config Config
+const (
+	dbSource         = "postgres://postgres:baha123@localhost:5432/taskdb?sslmode=disable"
+	rateLimit        = 1               // 1 task per second
+	burstLimit       = 5               // Allow burst of 5 tasks
+	rateLimiterLimit = time.Second / 1 // Limit rate
+)
 
 func main() {
-	// Load configuration
-	err := loadConfig()
-	if err != nil {
-		log.Fatalf("Error loading config: %v", err)
-	}
-
-	db, err := sql.Open("postgres", config.Database.ConnectionURL)
+	db, err := sql.Open("postgres", dbSource)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer db.Close()
 
+	limiter := rate.NewLimiter(rate.Every(rateLimiterLimit), burstLimit)
+
 	http.HandleFunc("/consume", func(w http.ResponseWriter, r *http.Request) {
+		if !limiter.Allow() {
+			http.Error(w, "Rate limit exceeded", http.StatusTooManyRequests)
+			return
+		}
+
 		r.ParseForm()
 		taskType, err := strconv.Atoi(r.FormValue("type"))
 		if err != nil {
@@ -91,10 +73,10 @@ func main() {
 		fmt.Fprintf(w, "Task processed")
 	})
 
-	http.Handle(config.Prometheus.Endpoint, promhttp.Handler())
+	http.Handle("/metrics", promhttp.Handler())
 
-	fmt.Printf("Consumer service started on port %d...\n", config.Prometheus.Port)
-	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", config.Prometheus.Port), nil))
+	fmt.Println("Consumer service started...")
+	log.Fatal(http.ListenAndServe(":8081", nil))
 }
 
 // findTaskID retrieves the task ID based on the type and value with state 'received'
@@ -125,23 +107,4 @@ func updateTaskState(db *sql.DB, id int, state string) {
 	if rowsAffected == 0 {
 		log.Printf("No rows updated for task with ID: %d\n", id)
 	}
-}
-
-// loadConfig loads the configuration from a YAML file
-func loadConfig() error {
-	viper.SetConfigName("config")
-	viper.SetConfigType("yaml")
-	viper.AddConfigPath("../consumer/config")
-
-	err := viper.ReadInConfig()
-	if err != nil {
-		return err
-	}
-
-	err = viper.Unmarshal(&config)
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
