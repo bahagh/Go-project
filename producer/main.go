@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"flag"
 	"fmt"
 	"log"
 	"math/rand"
@@ -39,9 +40,21 @@ type Config struct {
 	} `yaml:"database"`
 }
 
-var config Config
+var (
+	config  Config
+	version = "1.0.1" // Define your version here
+)
 
 func main() {
+	// Check for version flag
+	versionFlag := flag.Bool("version", false, "Display the version")
+	flag.Parse()
+
+	if *versionFlag {
+		fmt.Println("Producer Service Version:", version)
+		os.Exit(0)
+	}
+
 	// Load configuration from YAML
 	loadConfig()
 
