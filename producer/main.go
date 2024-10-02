@@ -7,24 +7,49 @@ import (
 	"math/rand"
 	"net/http"
 	"net/url"
+	"os"
 	"time"
 
 	_ "github.com/lib/pq"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"gopkg.in/yaml.v2"
 )
 
-const (
-	dbSource    = "postgres://postgres:baha123@localhost:5432/taskdb?sslmode=disable"
-	maxBacklog  = 100
-	produceRate = 2 // 2 tasks per second
-	httpAddress = "http://localhost:8081/consume"
-)
+type Config struct {
+	Prometheus struct {
+		Port     int    `yaml:"port"`
+		Endpoint string `yaml:"endpoint"`
+	} `yaml:"prometheus"`
+	Communication struct {
+		ConsumerURL string `yaml:"consumer_url"`
+	} `yaml:"communication"`
+	TaskProduction struct {
+		MaxBacklog  int `yaml:"max_backlog"`
+		MessageRate int `yaml:"message_rate"`
+	} `yaml:"task_production"`
+	Logging struct {
+		Level  string `yaml:"level"`
+		Format string `yaml:"format"`
+	} `yaml:"logging"`
+	Profiling struct {
+		Port int `yaml:"port"`
+	} `yaml:"profiling"`
+	Database struct {
+		Source string `yaml:"source"`
+	} `yaml:"database"`
+}
+
+var config Config
 
 func main() {
+	// Load configuration from YAML
+	loadConfig()
+
 	// Seed the random generator
 	rand.Seed(time.Now().UnixNano())
 
-	db, err := sql.Open("postgres", dbSource)
+	// Set up database connection
+	db, err := sql.Open("postgres", config.Database.Source)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -33,12 +58,12 @@ func main() {
 	// Initialize the database table
 	initDB(db)
 
-	http.Handle("/metrics", promhttp.Handler())
+	http.Handle(config.Prometheus.Endpoint, promhttp.Handler())
 
 	go generateTasks(db)
 
-	fmt.Println("Producer service started...")
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	fmt.Printf("Producer service started on port %d...\n", config.Prometheus.Port)
+	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", config.Prometheus.Port), nil))
 }
 
 // initDB creates the tasks table if it does not exist
@@ -62,7 +87,7 @@ func initDB(db *sql.DB) {
 
 func generateTasks(db *sql.DB) {
 	for {
-		if backlogCount(db) < maxBacklog {
+		if backlogCount(db) < config.TaskProduction.MaxBacklog {
 			taskType := rand.Intn(10)
 			taskValue := rand.Intn(100)
 			insertTask(db, taskType, taskValue)
@@ -70,11 +95,10 @@ func generateTasks(db *sql.DB) {
 			// Log the task generation
 			log.Printf("Generated task with Type: %d, Value: %d\n", taskType, taskValue)
 
-			// Ensure the task is inserted before the consumer tries to process it
 			time.Sleep(100 * time.Millisecond)
 
 			// Send to consumer
-			_, err := http.PostForm(httpAddress, url.Values{
+			_, err := http.PostForm(config.Communication.ConsumerURL, url.Values{
 				"type":  {fmt.Sprint(taskType)},
 				"value": {fmt.Sprint(taskValue)},
 			})
@@ -83,7 +107,7 @@ func generateTasks(db *sql.DB) {
 			}
 
 			// Control the rate of task generation
-			time.Sleep(time.Second / time.Duration(produceRate))
+			time.Sleep(time.Second / time.Duration(config.TaskProduction.MessageRate))
 		}
 	}
 }
@@ -99,5 +123,18 @@ func insertTask(db *sql.DB, taskType, value int) {
 	_, err := db.Exec("INSERT INTO tasks (type, value, state) VALUES ($1, $2, 'received')", taskType, value)
 	if err != nil {
 		log.Println("Error inserting task:", err)
+	}
+}
+
+func loadConfig() {
+	file, err := os.Open("producer_config.yaml")
+	if err != nil {
+		log.Fatalf("Error loading config file: %v", err)
+	}
+	defer file.Close()
+
+	decoder := yaml.NewDecoder(file)
+	if err := decoder.Decode(&config); err != nil {
+		log.Fatalf("Error decoding config file: %v", err)
 	}
 }

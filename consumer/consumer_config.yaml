@@ -1,0 +1,20 @@
+prometheus:
+  port: 8081
+  endpoint: /metrics
+
+communication:
+  consumer_url: "http://localhost:8081/consume"
+
+task_consumption:
+  message_rate: 1 # 1 task per second
+  burst_limit: 5 # Allow burst of 5 tasks
+
+logging:
+  level: "info" # Choose between: debug, info, warn, error
+  format: "console" # "console" or "json"
+
+profiling:
+  port: 6060
+
+database:
+  source: "postgres://postgres:baha123@localhost:5432/taskdb?sslmode=disable"

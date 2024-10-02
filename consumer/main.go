@@ -5,29 +5,51 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"strconv"
 	"time"
 
 	_ "github.com/lib/pq"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"golang.org/x/time/rate"
+	"gopkg.in/yaml.v2"
 )
 
-const (
-	dbSource         = "postgres://postgres:baha123@localhost:5432/taskdb?sslmode=disable"
-	rateLimit        = 1               // 1 task per second
-	burstLimit       = 5               // Allow burst of 5 tasks
-	rateLimiterLimit = time.Second / 1 // Limit rate
-)
+type Config struct {
+	Prometheus struct {
+		Port     int    `yaml:"port"`
+		Endpoint string `yaml:"endpoint"`
+	} `yaml:"prometheus"`
+	TaskConsumption struct {
+		MessageRate int `yaml:"message_rate"`
+		BurstLimit  int `yaml:"burst_limit"`
+	} `yaml:"task_consumption"`
+	Logging struct {
+		Level  string `yaml:"level"`
+		Format string `yaml:"format"`
+	} `yaml:"logging"`
+	Profiling struct {
+		Port int `yaml:"port"`
+	} `yaml:"profiling"`
+	Database struct {
+		Source string `yaml:"source"`
+	} `yaml:"database"`
+}
+
+var config Config
 
 func main() {
-	db, err := sql.Open("postgres", dbSource)
+	// Load configuration from YAML
+	loadConfig()
+
+	// Set up database connection
+	db, err := sql.Open("postgres", config.Database.Source)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer db.Close()
 
-	limiter := rate.NewLimiter(rate.Every(rateLimiterLimit), burstLimit)
+	limiter := rate.NewLimiter(rate.Every(time.Second/time.Duration(config.TaskConsumption.MessageRate)), config.TaskConsumption.BurstLimit)
 
 	http.HandleFunc("/consume", func(w http.ResponseWriter, r *http.Request) {
 		if !limiter.Allow() {
@@ -57,7 +79,6 @@ func main() {
 			return
 		}
 
-		// Log task retrieval
 		log.Printf("Processing task with ID: %d, Type: %d, Value: %d\n", taskID, taskType, taskValue)
 
 		// Update the task state to 'processing'
@@ -73,10 +94,11 @@ func main() {
 		fmt.Fprintf(w, "Task processed")
 	})
 
-	http.Handle("/metrics", promhttp.Handler())
+	// Register the Prometheus handler only once
+	http.Handle(config.Prometheus.Endpoint, promhttp.Handler())
 
-	fmt.Println("Consumer service started...")
-	log.Fatal(http.ListenAndServe(":8081", nil))
+	fmt.Printf("Consumer service started on port %d...\n", config.Prometheus.Port)
+	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", config.Prometheus.Port), nil))
 }
 
 // findTaskID retrieves the task ID based on the type and value with state 'received'
@@ -106,5 +128,18 @@ func updateTaskState(db *sql.DB, id int, state string) {
 
 	if rowsAffected == 0 {
 		log.Printf("No rows updated for task with ID: %d\n", id)
+	}
+}
+
+func loadConfig() {
+	file, err := os.Open("consumer_config.yaml")
+	if err != nil {
+		log.Fatalf("Error loading config file: %v", err)
+	}
+	defer file.Close()
+
+	decoder := yaml.NewDecoder(file)
+	if err := decoder.Decode(&config); err != nil {
+		log.Fatalf("Error decoding config file: %v", err)
 	}
 }
