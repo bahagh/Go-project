@@ -1,0 +1,23 @@
+# config/producer/config.yaml
+prometheus:
+  port: 8080
+  endpoint: "/metrics"
+
+communication:
+  service2_url: "http://localhost:8081/consume"
+  protocol: "http"
+
+max_backlog: 10
+
+logging:
+  level: "info"
+  format: "json"
+
+profiling:
+  port: 6060
+
+message_production:
+  rate: 2
+
+database:
+  connection_url: "postgres://postgres:baha123@localhost:5432/taskdb?sslmode=disable"
