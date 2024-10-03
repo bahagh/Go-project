@@ -1,9 +1,0 @@
-basePath: /
-host: localhost:8081
-info:
-  contact: {}
-  description: This is the API for task consumption.
-  title: Consumer API
-  version: "1.0"
-paths: {}
-swagger: "2.0"

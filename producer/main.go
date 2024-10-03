@@ -119,6 +119,8 @@ func generateTasks(db *sql.DB) {
 			// Increment the tasks produced counter
 			tasksProducedCounter.WithLabelValues(fmt.Sprint(taskType)).Inc()
 
+			time.Sleep(100 * time.Millisecond)
+
 			// Send to consumer
 			_, err := http.PostForm(config.Communication.ConsumerURL, url.Values{
 				"type":  {fmt.Sprint(taskType)},
