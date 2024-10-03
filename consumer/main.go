@@ -8,9 +8,11 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"sync"
 	"time"
 
 	_ "github.com/lib/pq"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"golang.org/x/time/rate"
 	"gopkg.in/yaml.v2"
@@ -38,8 +40,26 @@ type Config struct {
 }
 
 var (
-	config  Config
-	version = "1.0.1" // Define your version here
+	config                Config
+	version               = "1.0.1" // Define your version here
+	tasksProcessedCounter = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "tasks_processed_total",
+		Help: "Total number of tasks processed",
+	}, []string{"type"})
+	tasksDoneCounter = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "tasks_done_total",
+		Help: "Total number of tasks done",
+	}, []string{"type"})
+	totalValueCounter = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "total_value_per_task_type",
+		Help: "Total value of tasks processed per type",
+	}, []string{"type"})
+	tasksInProcessingGauge = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "tasks_in_processing",
+		Help: "Current number of tasks being processed",
+	}, []string{"type"})
+	taskValueSum = make(map[int]float64) // This map tracks total values per task type
+	mu           sync.Mutex              // To synchronize map updates
 )
 
 func main() {
@@ -54,6 +74,12 @@ func main() {
 
 	// Load configuration from YAML
 	loadConfig()
+
+	// Register Prometheus metrics
+	prometheus.MustRegister(tasksProcessedCounter)
+	prometheus.MustRegister(tasksDoneCounter)
+	prometheus.MustRegister(totalValueCounter)
+	prometheus.MustRegister(tasksInProcessingGauge)
 
 	// Set up database connection
 	db, err := sql.Open("postgres", config.Database.Source)
@@ -97,50 +123,60 @@ func main() {
 		// Update the task state to 'processing'
 		updateTaskState(db, taskID, "processing")
 
+		// Increment tasks in processing gauge
+		tasksInProcessingGauge.WithLabelValues(fmt.Sprint(taskType)).Inc()
+
 		// Simulate processing by sleeping for taskValue milliseconds
 		time.Sleep(time.Duration(taskValue) * time.Millisecond)
+
+		// Decrement tasks in processing gauge
+		tasksInProcessingGauge.WithLabelValues(fmt.Sprint(taskType)).Dec()
 
 		// Update the task state to 'done'
 		updateTaskState(db, taskID, "done")
 
 		log.Printf("Task with ID: %d processed successfully\n", taskID)
-		fmt.Fprintf(w, "Task processed")
+
+		// Increment the processed tasks counter and total value
+		tasksProcessedCounter.WithLabelValues(fmt.Sprint(taskType)).Inc()
+		tasksDoneCounter.WithLabelValues(fmt.Sprint(taskType)).Inc()
+		totalValueCounter.WithLabelValues(fmt.Sprint(taskType)).Add(float64(taskValue))
+
+		// Update the total value sum for this task type
+		mu.Lock()
+		taskValueSum[taskType] += float64(taskValue)
+		currentTotalValue := taskValueSum[taskType]
+		mu.Unlock()
+
+		// Log final sum for task type
+		log.Printf("Total value for tasks of type %d is now: %.2f", taskType, currentTotalValue)
+
+		fmt.Fprintln(w, "Task processed successfully")
 	})
 
-	// Register the Prometheus handler only once
 	http.Handle(config.Prometheus.Endpoint, promhttp.Handler())
 
 	fmt.Printf("Consumer service started on port %d...\n", config.Prometheus.Port)
 	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", config.Prometheus.Port), nil))
 }
 
-// findTaskID retrieves the task ID based on the type and value with state 'received'
-func findTaskID(db *sql.DB, taskType, taskValue int) int {
-	var id int
-	err := db.QueryRow("SELECT id FROM tasks WHERE type = $1 AND value = $2 AND state = 'received' LIMIT 1", taskType, taskValue).Scan(&id)
-	if err != nil && err != sql.ErrNoRows {
-		log.Println("Error finding task:", err)
-		return 0
+func findTaskID(db *sql.DB, taskType, value int) int {
+	var taskID int
+	row := db.QueryRow("SELECT id FROM tasks WHERE type = $1 AND value = $2 AND state = 'received'", taskType, value)
+	err := row.Scan(&taskID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return 0 // No task found
+		}
+		log.Printf("Error querying task ID: %v\n", err)
 	}
-	return id
+	return taskID
 }
 
-// updateTaskState updates the state of a task in the database
-func updateTaskState(db *sql.DB, id int, state string) {
-	result, err := db.Exec("UPDATE tasks SET state = $1, last_update_time = NOW() WHERE id = $2", state, id)
+func updateTaskState(db *sql.DB, taskID int, state string) {
+	_, err := db.Exec("UPDATE tasks SET state = $1, last_update_time = CURRENT_TIMESTAMP WHERE id = $2", state, taskID)
 	if err != nil {
-		log.Println("Error updating task:", err)
-		return
-	}
-
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		log.Println("Error checking rows affected:", err)
-		return
-	}
-
-	if rowsAffected == 0 {
-		log.Printf("No rows updated for task with ID: %d\n", id)
+		log.Printf("Error updating task state: %v\n", err)
 	}
 }
 

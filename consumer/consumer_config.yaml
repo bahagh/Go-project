@@ -18,3 +18,30 @@ profiling:
 
 database:
   source: "postgres://postgres:baha123@localhost:5432/taskdb?sslmode=disable"
+
+# New metrics for tracking tasks processed
+metrics:
+  tasks_processed_total: 0 # Total tasks processed
+  tasks_done_total: 0       # Total tasks done
+  tasks_per_type:           # Counts per task type
+    type_0: 0
+    type_1: 0
+    type_2: 0
+    type_3: 0
+    type_4: 0
+    type_5: 0
+    type_6: 0
+    type_7: 0
+    type_8: 0
+    type_9: 0
+  total_value_per_type:     # Total value per task type
+    type_0: 0
+    type_1: 0
+    type_2: 0
+    type_3: 0
+    type_4: 0
+    type_5: 0
+    type_6: 0
+    type_7: 0
+    type_8: 0
+    type_9: 0

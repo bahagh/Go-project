@@ -18,3 +18,7 @@ profiling:
 
 database:
   source: "postgres://postgres:baha123@localhost:5432/taskdb?sslmode=disable"
+
+# New metrics for tracking tasks produced
+metrics:
+  tasks_produced_total: 0 # Total tasks produced

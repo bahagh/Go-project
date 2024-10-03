@@ -12,6 +12,7 @@ import (
 	"time"
 
 	_ "github.com/lib/pq"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"gopkg.in/yaml.v2"
 )
@@ -41,8 +42,12 @@ type Config struct {
 }
 
 var (
-	config  Config
-	version = "1.0.1" // Define your version here
+	config               Config
+	version              = "1.0.1" // Define your version here
+	tasksProducedCounter = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "tasks_produced_total",
+		Help: "Total number of tasks produced",
+	}, []string{"type"})
 )
 
 func main() {
@@ -57,6 +62,9 @@ func main() {
 
 	// Load configuration from YAML
 	loadConfig()
+
+	// Register Prometheus metrics
+	prometheus.MustRegister(tasksProducedCounter)
 
 	// Seed the random generator
 	rand.Seed(time.Now().UnixNano())
@@ -108,7 +116,8 @@ func generateTasks(db *sql.DB) {
 			// Log the task generation
 			log.Printf("Generated task with Type: %d, Value: %d\n", taskType, taskValue)
 
-			time.Sleep(100 * time.Millisecond)
+			// Increment the tasks produced counter
+			tasksProducedCounter.WithLabelValues(fmt.Sprint(taskType)).Inc()
 
 			// Send to consumer
 			_, err := http.PostForm(config.Communication.ConsumerURL, url.Values{
