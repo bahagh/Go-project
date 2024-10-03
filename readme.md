@@ -1,19 +1,28 @@
 
-### get yourself in the root folder inside GOLANG_BAHA and get into the folder monitoring and run
+### inside the root folder open a terminal and follow this commands to run the project
 
-'''cd monitoring'''
+```bash
+ cd monitoring
+```
+```bash
+docker-compose up --build
+```
+### in another terminal window :
 
-'''docker-compose up --build'''
+```bash
+cd producer
+```
+
+```bash
+go run main.go
+```
 
 ### in another terminal window :
 
-'''cd producer'''
+```bash
+cd consumer
+```
 
-'''go run main.go'''
-
-
-### in another terminal window :
-
-'''cd consumer'''
-
-'''go run main.go'''
+```bash
+go run main.go
+```
