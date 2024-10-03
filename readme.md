@@ -1,5 +1,5 @@
 
-### get yourself in the root folder inside GOLANG_BAHA and get into the folder monitoring and run
+### inside the root folder open a terminal and follow this commands to run the project
 
 ```bash
  cd monitoring
