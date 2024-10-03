@@ -7,7 +7,7 @@ communication:
 
 task_production:
   max_backlog: 100
-  message_rate: 2 # 2 tasks per second
+  message_rate: 5 # 2 tasks per second
 
 logging:
   level: "info" # Choose between: debug, info, warn, error
