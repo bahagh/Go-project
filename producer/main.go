@@ -45,7 +45,7 @@ type Config struct {
 
 var (
 	config               Config
-	version              = "1.0.1" // Define your version here
+	version              = "1.23" // Define your version here
 	tasksProducedCounter = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "tasks_produced_total",
 		Help: "Total number of tasks produced",
@@ -110,13 +110,14 @@ func initDB(db *sql.DB) {
 
 func generateTasks(db *sql.DB) {
 	for {
-		if backlogCount(db) < config.TaskProduction.MaxBacklog {
+		backlog := backlogCount(db)
+		if backlog < config.TaskProduction.MaxBacklog {
 			taskType := rand.Intn(10)
 			taskValue := rand.Intn(100)
 			insertTask(db, taskType, taskValue)
 
 			// Log the task generation
-			log.Printf("Generated task with Type: %d, Value: %d\n", taskType, taskValue)
+			log.Printf("Generated task with Type: %d, Value: %d. Backlog: %d/%d\n", taskType, taskValue, backlog+1, config.TaskProduction.MaxBacklog)
 
 			// Increment the tasks produced counter
 			tasksProducedCounter.WithLabelValues(fmt.Sprint(taskType)).Inc()
@@ -134,6 +135,10 @@ func generateTasks(db *sql.DB) {
 
 			// Control the rate of task generation
 			time.Sleep(time.Second / time.Duration(config.TaskProduction.MessageRate))
+		} else {
+			// Log when the maximum backlog is reached
+			log.Printf("Max backlog reached: %d/%d. Pausing task generation.\n", backlog, config.TaskProduction.MaxBacklog)
+			time.Sleep(500 * time.Millisecond) // Pause before checking backlog again
 		}
 	}
 }

@@ -44,7 +44,7 @@ type Config struct {
 
 var (
 	config                Config
-	version               = "1.0.1" // Define your version here
+	version               = "1.23" // Define your version here
 	tasksProcessedCounter = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "tasks_processed_total",
 		Help: "Total number of tasks processed",
