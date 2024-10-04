@@ -6,7 +6,7 @@ communication:
   consumer_url: "http://localhost:8081/consume"
 
 task_consumption:
-  message_rate: 1 # 1 task per second
+  message_rate: 2 # 1 task per second
   burst_limit: 5 # Allow burst of 5 tasks
 
 logging:
