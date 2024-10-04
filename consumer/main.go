@@ -16,6 +16,9 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"golang.org/x/time/rate"
 	"gopkg.in/yaml.v2"
+
+	// Importing pprof for profiling
+	_ "net/http/pprof"
 )
 
 type Config struct {
@@ -153,6 +156,10 @@ func main() {
 
 		fmt.Fprintln(w, "Task processed successfully")
 	})
+	// Start pprof server in a goroutine
+	go func() {
+		log.Println(http.ListenAndServe(fmt.Sprintf(":%d", config.Profiling.Port), nil))
+	}()
 
 	http.Handle(config.Prometheus.Endpoint, promhttp.Handler())
 
